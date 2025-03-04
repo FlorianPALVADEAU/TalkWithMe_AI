@@ -1,0 +1,9 @@
+django
+djangorestframework
+torch
+transformers
+git+https://github.com/openai/whisper.git
+edge-tts
+pyttsx3
+accelerate
+dotenv
