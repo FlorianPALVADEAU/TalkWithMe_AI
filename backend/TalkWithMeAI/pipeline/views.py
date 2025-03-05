@@ -98,11 +98,10 @@ def load_models():
             print(traceback.format_exc())
             return False
 
-# Fonction pour générer une réponse personnalisée avec BloomZ
+# Fonction pour générer une réponse avec le modèle uniquement
 def generate_response(transcription, max_length=100):
-    try:
-        # Format de prompt plus explicite pour BloomZ
-        prompt = f"""
+    # Format de prompt pour BloomZ
+    prompt = f"""
 <instructions>
 Tu es Louis Le Foufou, un assistant vocal intelligent qui répond aux questions en français de manière concise mais complète.
 </instructions>
@@ -113,69 +112,69 @@ Tu es Louis Le Foufou, un assistant vocal intelligent qui répond aux questions 
 
 <réponse>
 """
+    
+    # Tokeniser l'entrée avec attention mask explicite
+    encoded_input = tokenizer(prompt, return_tensors="pt", padding=True)
+    input_ids = encoded_input.input_ids.to(text_model.device)
+    attention_mask = encoded_input.attention_mask.to(text_model.device)
+    
+    # Générer la réponse avec paramètres optimisés
+    with torch.inference_mode():
+        outputs = text_model.generate(
+            input_ids,
+            attention_mask=attention_mask,
+            max_length=len(input_ids[0]) + max_length,
+            min_length=len(input_ids[0]) + 10,  # Forcer une réponse minimale
+            num_return_sequences=1,
+            do_sample=True,
+            temperature=0.8,
+            top_p=0.95,
+            top_k=40,
+            no_repeat_ngram_size=3,
+            pad_token_id=tokenizer.eos_token_id
+        )
+    
+    # Décoder la sortie
+    generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    
+    # Extraire la partie réponse
+    if "<réponse>" in generated_text:
+        response = generated_text.split("<réponse>")[1].strip()
+        # Supprimer d'autres balises si présentes dans la réponse
+        response = response.split("</réponse>")[0].strip() if "</réponse>" in response else response
+    else:
+        # Fallback: supprimer le prompt
+        response = generated_text.replace(prompt.strip(), "").strip()
+    
+    # Si le modèle n'a pas généré de réponse valide, réessayer avec un prompt différent
+    if len(response) < 10:
+        # Prompt alternatif plus simple
+        alt_prompt = f"Question: {transcription}\nRéponse: "
         
-        # Tokeniser l'entrée avec attention mask explicite
-        encoded_input = tokenizer(prompt, return_tensors="pt", padding=True)
+        encoded_input = tokenizer(alt_prompt, return_tensors="pt", padding=True)
         input_ids = encoded_input.input_ids.to(text_model.device)
         attention_mask = encoded_input.attention_mask.to(text_model.device)
         
-        # Générer la réponse avec paramètres optimisés
         with torch.inference_mode():
             outputs = text_model.generate(
                 input_ids,
                 attention_mask=attention_mask,
                 max_length=len(input_ids[0]) + max_length,
-                min_length=len(input_ids[0]) + 10,  # Forcer une réponse minimale
                 num_return_sequences=1,
                 do_sample=True,
-                temperature=0.8,
+                temperature=0.9,  # Température légèrement plus élevée
                 top_p=0.95,
-                top_k=40,
-                no_repeat_ngram_size=3,
+                top_k=50,
                 pad_token_id=tokenizer.eos_token_id
             )
         
-        # Décoder la sortie
-        generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
-        # Extraire la partie réponse
-        if "<réponse>" in generated_text:
-            response = generated_text.split("<réponse>")[1].strip()
-            # Supprimer d'autres balises si présentes dans la réponse
-            response = response.split("</réponse>")[0].strip() if "</réponse>" in response else response
+        alt_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        if "Réponse:" in alt_text:
+            response = alt_text.split("Réponse:")[1].strip()
         else:
-            # Fallback: supprimer le prompt
-            response = generated_text.replace(prompt.strip(), "").strip()
-        
-        # Pour les questions sur le président
-        if "président" in transcription.lower() and "france" in transcription.lower():
-            if len(response) < 20 or "emmanuel" not in response.lower():
-                response = "Le président actuel de la France est Emmanuel Macron, élu en 2017 et réélu en 2022 pour un mandat de 5 ans."
-        
-        # Pour la météo
-        if "météo" in transcription.lower():
-            if len(response) < 20:
-                response = "Je n'ai pas accès en temps réel aux informations météorologiques, mais je serais ravi de vous aider sur d'autres sujets."
-        
-        # Pour l'heure
-        if "heure" in transcription.lower() and "quelle" in transcription.lower():
-            if len(response) < 20:
-                response = "Je n'ai pas accès à l'heure actuelle car je n'ai pas de connexion en temps réel à Internet."
-        
-        # Limiter la longueur de la réponse si trop longue
-        if len(response) > 150:
-            response = response[:150] + "..."
-            
-        # Vérifier si la réponse est trop courte ou vide
-        if len(response) < 10:
-            # Réponse de secours mais générée dynamiquement
-            return f"Bonjour, je suis Louis Le Foufou. Pour répondre à votre question concernant {transcription.lower()}, je dirais que c'est un sujet intéressant. N'hésitez pas à me demander plus d'informations."
-            
-        return response
-        
-    except Exception as e:
-        print(f"Erreur lors de la génération de texte: {str(e)}")
-        return f"Je suis Louis Le Foufou. Concernant '{transcription}', je ne trouve pas d'information précise actuellement."
+            response = alt_text.replace(alt_prompt, "").strip()
+    
+    return response
 
 # Endpoint API optimisé
 @api_view(['POST'])
