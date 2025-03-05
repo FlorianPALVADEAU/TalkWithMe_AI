@@ -26,7 +26,6 @@ except FileNotFoundError:
     pass
 
 current_device = "cuda" if torch.cuda.is_available() else "cpu"
-
 whisper_device = "cuda" if torch.cuda.is_available() and torch.cuda.memory_allocated() < 6e9 else "cpu"
 
 tokenizer, lm_model, stt_model = None, None, None
@@ -34,10 +33,10 @@ tokenizer, lm_model, stt_model = None, None, None
 def load_models():
     global tokenizer, lm_model, stt_model
     if tokenizer is None:
-        tokenizer = AutoTokenizer.from_pretrained("HuggingFaceH4/zephyr-7b-beta")
+        tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-Instruct-v0.1")
     if lm_model is None:
         lm_model = AutoModelForCausalLM.from_pretrained(
-            "HuggingFaceH4/zephyr-7b-beta", 
+            "mistralai/Mistral-7B-Instruct-v0.1", 
             torch_dtype=torch.float16, 
             device_map="auto"
         )
@@ -62,15 +61,20 @@ def process_audio(request):
             f.write(chunk)
 
     if not os.path.exists(file_path):
-        return Response({"error": f"Erreur lors de l'enregistrement du fichier : {file_path}"}, status=500)
+        return Response({"error": "Erreur lors de l'enregistrement du fichier"}, status=500)
 
     try:
         transcription = stt_model.transcribe(file_path, fp16=False, language="fr")["text"]
         
-        inputs = tokenizer(transcription, return_tensors="pt").to(current_device)
+        prompt = ("Tu es Louis Le Foufou, un assistant vocal intelligent et amical. "
+                  "Réponds de manière claire et concise aux questions des utilisateurs sans répéter leur demande.\n"
+                  "Utilisateur : {}\n"
+                  "Louis Le Foufou : ").format(transcription)
+        
+        inputs = tokenizer(prompt, return_tensors="pt").to(current_device)
         inputs = inputs.to(lm_model.device)
-        outputs = lm_model.generate(**inputs, max_new_tokens=50, pad_token_id=tokenizer.eos_token_id)
-        ai_response = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        outputs = lm_model.generate(**inputs, max_new_tokens=100, pad_token_id=tokenizer.eos_token_id)
+        ai_response = tokenizer.decode(outputs[0], skip_special_tokens=True).replace(prompt, "").strip()
 
         output_audio_path = os.path.join(TEMP_DIR, "output.mp3")
 
