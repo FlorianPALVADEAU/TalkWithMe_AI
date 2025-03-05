@@ -8,14 +8,26 @@ import asyncio
 import time
 import gc
 import threading
-import random
-from transformers import pipeline
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from django.http import FileResponse
 from dotenv import load_dotenv
+from huggingface_hub import login
 
+# Charger les variables d'environnement
 load_dotenv()
+
+# Authentification avec le token HF
+HF_TOKEN = os.getenv("HF_TOKEN")
+if HF_TOKEN:
+    print("Authentification avec le token Hugging Face...")
+    login(HF_TOKEN)
+else:
+    print("Aucun token HF_TOKEN trouvé dans les variables d'environnement")
+
+# Régler l'avertissement des tokenizers
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # Vérifier disponibilité du GPU
 if torch.cuda.is_available():
@@ -35,12 +47,13 @@ tts_cache = {}
 
 # Variables globales pour les modèles
 stt_model = None
-text_generator = None
+tokenizer = None
+text_model = None
 models_loaded = False
 model_loading_lock = threading.Lock()
 
 def load_models():
-    global stt_model, text_generator, models_loaded, model_loading_lock
+    global stt_model, tokenizer, text_model, models_loaded, model_loading_lock
     
     if models_loaded:
         return True
@@ -56,17 +69,25 @@ def load_models():
             stt_model = whisper.load_model("tiny", device=current_device)
             print(f"Modèle STT chargé en {time.time() - start_time:.2f} secondes")
             
-            # 2. Charger un modèle de génération de texte très léger
-            print("Chargement du modèle de génération de texte léger...")
+            # 2. Charger un modèle français pour la génération de texte
+            print("Chargement du modèle de génération de texte français...")
             start_time = time.time()
             
-            # Utiliser un modèle DistilGPT2 très léger
-            text_generator = pipeline(
-                "text-generation",
-                model="distilgpt2",
-                device=0 if current_device == "cuda" else -1
+            # Utiliser le modèle BloomZ pour de meilleures performances en français
+            model_name = "bigscience/bloomz-1b1"  # Modèle légèrement plus grand pour meilleures performances
+            
+            # Utiliser le token pour l'authentification
+            tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=HF_TOKEN)
+            text_model = AutoModelForCausalLM.from_pretrained(
+                model_name,
+                use_auth_token=HF_TOKEN,
+                torch_dtype=torch.float16 if current_device == "cuda" else torch.float32,
+                low_cpu_mem_usage=True
             )
             
+            if current_device == "cuda":
+                text_model = text_model.to("cuda")
+                
             print(f"Modèle de texte chargé en {time.time() - start_time:.2f} secondes")
             
             models_loaded = True
@@ -77,56 +98,84 @@ def load_models():
             print(traceback.format_exc())
             return False
 
-# Fonction pour trouver la meilleure réponse prédéfinie ou générer une nouvelle
-def get_best_response(transcription):
-    transcription_lower = transcription.lower()
-  
-    
-    # Si le message contient un nom, générer une réponse personnalisée
-    if "je m'appelle" in transcription_lower or "mon nom est" in transcription_lower:
-        parts = transcription_lower.replace("je m'appelle", "").replace("mon nom est", "").strip().split()
-        if parts:
-            name = parts[0].capitalize()
-            responses = [
-                f"Ravi de vous rencontrer, {name}! Je suis Louis Le Foufou.",
-                f"Enchanté, {name}! Comment puis-je vous aider aujourd'hui?",
-                f"Bonjour {name}! C'est un plaisir de faire votre connaissance."
-            ]
-            return random.choice(responses)
-    
-    # Sinon, générer une réponse avec le modèle
+# Fonction pour générer une réponse personnalisée avec BloomZ
+def generate_response(transcription, max_length=100):
     try:
-        # Ajouter un préfixe pour guider la génération en français
-        prompt = f"Réponse courte et amicale à: {transcription}\nLouis: "
+        # Format de prompt plus explicite pour BloomZ
+        prompt = f"""
+<instructions>
+Tu es Louis Le Foufou, un assistant vocal intelligent qui répond aux questions en français de manière concise mais complète.
+</instructions>
+
+<question>
+{transcription}
+</question>
+
+<réponse>
+"""
         
-        # Générer avec le modèle léger
-        response = text_generator(
-            prompt,
-            max_length=30,
-            num_return_sequences=1,
-            temperature=0.7,
-            do_sample=True,
-            top_k=50,
-            no_repeat_ngram_size=2
-        )[0]['generated_text']
+        # Tokeniser l'entrée avec attention mask explicite
+        encoded_input = tokenizer(prompt, return_tensors="pt", padding=True)
+        input_ids = encoded_input.input_ids.to(text_model.device)
+        attention_mask = encoded_input.attention_mask.to(text_model.device)
         
-        # Nettoyer la réponse
-        response = response.replace(prompt, "").strip()
+        # Générer la réponse avec paramètres optimisés
+        with torch.inference_mode():
+            outputs = text_model.generate(
+                input_ids,
+                attention_mask=attention_mask,
+                max_length=len(input_ids[0]) + max_length,
+                min_length=len(input_ids[0]) + 10,  # Forcer une réponse minimale
+                num_return_sequences=1,
+                do_sample=True,
+                temperature=0.8,
+                top_p=0.95,
+                top_k=40,
+                no_repeat_ngram_size=3,
+                pad_token_id=tokenizer.eos_token_id
+            )
         
-        # Assurer que la réponse est en français en ajoutant un préfixe français si nécessaire
-        if not any(word in response.lower() for word in ["bonjour", "salut", "je", "suis", "louis", "merci", "bien"]):
-            response = "Bonjour! Je suis Louis Le Foufou. " + response
+        # Décoder la sortie
+        generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        # Extraire la partie réponse
+        if "<réponse>" in generated_text:
+            response = generated_text.split("<réponse>")[1].strip()
+            # Supprimer d'autres balises si présentes dans la réponse
+            response = response.split("</réponse>")[0].strip() if "</réponse>" in response else response
+        else:
+            # Fallback: supprimer le prompt
+            response = generated_text.replace(prompt.strip(), "").strip()
+        
+        # Pour les questions sur le président
+        if "président" in transcription.lower() and "france" in transcription.lower():
+            if len(response) < 20 or "emmanuel" not in response.lower():
+                response = "Le président actuel de la France est Emmanuel Macron, élu en 2017 et réélu en 2022 pour un mandat de 5 ans."
+        
+        # Pour la météo
+        if "météo" in transcription.lower():
+            if len(response) < 20:
+                response = "Je n'ai pas accès en temps réel aux informations météorologiques, mais je serais ravi de vous aider sur d'autres sujets."
+        
+        # Pour l'heure
+        if "heure" in transcription.lower() and "quelle" in transcription.lower():
+            if len(response) < 20:
+                response = "Je n'ai pas accès à l'heure actuelle car je n'ai pas de connexion en temps réel à Internet."
+        
+        # Limiter la longueur de la réponse si trop longue
+        if len(response) > 150:
+            response = response[:150] + "..."
             
-        # Limiter la taille
-        if len(response) > 100:
-            response = response[:100] + "..."
+        # Vérifier si la réponse est trop courte ou vide
+        if len(response) < 10:
+            # Réponse de secours mais générée dynamiquement
+            return f"Bonjour, je suis Louis Le Foufou. Pour répondre à votre question concernant {transcription.lower()}, je dirais que c'est un sujet intéressant. N'hésitez pas à me demander plus d'informations."
             
         return response
         
     except Exception as e:
         print(f"Erreur lors de la génération de texte: {str(e)}")
-        # Réponse de secours en cas d'erreur
-        return "Bonjour! Je suis Louis Le Foufou. Comment puis-je vous aider aujourd'hui?"
+        return f"Je suis Louis Le Foufou. Concernant '{transcription}', je ne trouve pas d'information précise actuellement."
 
 # Endpoint API optimisé
 @api_view(['POST'])
@@ -146,7 +195,7 @@ def process_audio(request):
 
     # Générer un nom de fichier unique
     file_id = int(time.time() * 1000)
-    file_path = os.path.join(TEMP_DIR, f"input_{file_id}.wav")
+    file_path = os.path.join(TEMP_DIR, f"input_{file_id}.webm")
     
     # Sauvegarder le fichier audio
     with open(file_path, "wb") as f:
@@ -168,9 +217,9 @@ def process_audio(request):
         transcription_time = time.time() - start_time
         print(f"Transcription effectuée en {transcription_time:.2f} secondes: '{transcription}'")
 
-        # 2. Génération de la réponse
+        # 2. Génération de la réponse avec BloomZ
         start_time = time.time()
-        ai_response = get_best_response(transcription)
+        ai_response = generate_response(transcription)
         generation_time = time.time() - start_time
         print(f"Réponse générée en {generation_time:.2f} secondes: '{ai_response}'")
 
