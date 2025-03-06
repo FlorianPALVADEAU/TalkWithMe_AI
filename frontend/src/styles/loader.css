@@ -2,6 +2,8 @@
 .loader-wrapper {
 	display: -webkit-flex;
 	display:         flex;
+	justify-content: center;
+	align-items: center;
 	position: relative;
 	width: 100%;
 	height: 100%;
@@ -19,12 +21,9 @@
 .loader-6 {
 	height: 32px;
 	width: 32px;
+	
 }
 .loader-6 span {
-	display: block;
-	position: absolute;
-	top: -56%; left: 0;
-	bottom: 0; right: 0;
 	margin: auto;
 	height: 32px;
 	width: 32px;

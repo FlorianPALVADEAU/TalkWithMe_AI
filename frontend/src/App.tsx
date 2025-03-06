@@ -5,7 +5,7 @@ import { ReactMic } from 'react-mic';
 import { postUserSpeech } from './api/apiCalls';
 
 import CircularLoader from './component/CircularLoader';
-import SpeakDisplay from './component/SpeakDisplay';
+import SpeakDisplay from './component/speakDisplay';
 
 function App() {
   const [microphoneAccess, setMicrophoneAccess] = useState(false);
@@ -89,7 +89,8 @@ function App() {
         className='w-[100px] h-[100px] bg-white rounded-full flex items-center justify-center transition-all ease-in-out duration-300'
         style={{
           backgroundColor: aiSpeaking ? 'white' : '#cec7c7',
-          animation: aiSpeaking ? 'pulse 1s infinite' : 'none',
+          animation: aiSpeaking ? 'pulse 1s infinite' : loading ? 'distortCircle 1s infinite ease-in-out' : 'none',
+          clipPath: 'circle(50% at 50% 50%)',
         }}
       >
         {loading ? <CircularLoader /> : <SpeakDisplay animate={aiSpeaking} />}
@@ -98,7 +99,7 @@ function App() {
       <ReactMic
         record={record}
         className='w-[350px] h-[100px] rounded-lg'
-        visualSetting='sinewave'
+        visualSetting='frequencyBars'
         onStop={onStop}
         strokeColor='#ffffff'
         backgroundColor={aiSpeaking ? '#647185' : '#a45ead'}
@@ -109,7 +110,7 @@ function App() {
       <button
         className={
           'w-[250px] h-12 bg-white text-gray-700 font-bold rounded-lg hover:bg-gray-300 hover:w-[270px] hover:h-14 hover:rounded-2xl transition-all ease-in-out duration-300' +
-          (record || !microphoneAccess ? 'opacity-50 cursor-not-allowed' : '')
+          (!microphoneAccess ? 'opacity-50 cursor-not-allowed' : '')
         }
         onClick={() => (record ? stopRecording() : startRecording())}
         disabled={!microphoneAccess}

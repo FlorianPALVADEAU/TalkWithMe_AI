@@ -16,10 +16,10 @@ body {
 #wave {
 	height: 40px;
 	width: 40px;
-	fill: #686868;
+	fill: #7c42c7;
 }
 
-.line .animate{
+.animate{
     animation: animate 1s infinite;
 }
 #Line_1 {
