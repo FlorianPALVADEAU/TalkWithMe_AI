@@ -1,5 +1,8 @@
 # README - Backend Speech-to-Text & AI Assistant
 
+## DEMO
+Vidéo démo dans le dossier "demo"
+
 ## Description
 Ce backend implémente un pipeline local de reconnaissance vocale (Speech-to-Text), génération de texte assistée par IA et synthèse vocale (Text-to-Speech). Il permet de convertir un fichier audio en texte, d'interpréter le contenu avec un modèle de génération de texte et de fournir une réponse sous forme d'audio généré par une voix de synthèse.
 
