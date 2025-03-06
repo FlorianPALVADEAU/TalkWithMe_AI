@@ -15,10 +15,10 @@ from django.http import FileResponse
 from dotenv import load_dotenv
 from huggingface_hub import login
 
-# Charger les variables d'environnement
+
 load_dotenv()
 
-# Authentification avec le token HF
+
 HF_TOKEN = os.getenv("HF_TOKEN")
 if HF_TOKEN:
     print("Authentification avec le token Hugging Face...")
@@ -26,10 +26,10 @@ if HF_TOKEN:
 else:
     print("Aucun token HF_TOKEN trouvé dans les variables d'environnement")
 
-# Régler l'avertissement des tokenizers
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# Vérifier disponibilité du GPU
+
 if torch.cuda.is_available():
     current_device = "cuda"
     print(f"GPU disponible: {torch.cuda.get_device_name(0)}")
@@ -38,14 +38,14 @@ else:
     current_device = "cpu"
     print("Utilisation du CPU")
 
-# Créez un répertoire temporaire pour les fichiers
+
 TEMP_DIR = os.path.join(os.getcwd(), "temp")
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-# Cache pour les réponses TTS
+
 tts_cache = {}
 
-# Variables globales pour les modèles
+
 stt_model = None
 tokenizer = None
 text_model = None
@@ -63,20 +63,20 @@ def load_models():
             return True
             
         try:
-            # 1. Charger le modèle Whisper tiny - ultra léger
-            print("Chargement du modèle Whisper tiny...")
+            
+            print("Chargement du modèle Whisper large...")
             start_time = time.time()
-            stt_model = whisper.load_model("tiny", device=current_device)
+            stt_model = whisper.load_model("medium", device=current_device)
             print(f"Modèle STT chargé en {time.time() - start_time:.2f} secondes")
             
-            # 2. Charger un modèle français pour la génération de texte
+            
             print("Chargement du modèle de génération de texte français...")
             start_time = time.time()
             
-            # Utiliser le modèle BloomZ pour de meilleures performances en français
-            model_name = "bigscience/bloomz-1b1"  # Modèle légèrement plus grand pour meilleures performances
             
-            # Utiliser le token pour l'authentification
+            model_name = "bigscience/bloomz-1b1"  
+            
+            
             tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=HF_TOKEN)
             text_model = AutoModelForCausalLM.from_pretrained(
                 model_name,
@@ -98,9 +98,9 @@ def load_models():
             print(traceback.format_exc())
             return False
 
-# Fonction pour générer une réponse avec le modèle uniquement
+
 def generate_response(transcription, max_length=100):
-    # Format de prompt pour BloomZ
+    
     prompt = f"""
 <instructions>
 Tu es Louis Le Foufou, un assistant vocal intelligent qui répond aux questions en français de manière concise mais complète.
@@ -113,18 +113,18 @@ Tu es Louis Le Foufou, un assistant vocal intelligent qui répond aux questions 
 <réponse>
 """
     
-    # Tokeniser l'entrée avec attention mask explicite
+    
     encoded_input = tokenizer(prompt, return_tensors="pt", padding=True)
     input_ids = encoded_input.input_ids.to(text_model.device)
     attention_mask = encoded_input.attention_mask.to(text_model.device)
     
-    # Générer la réponse avec paramètres optimisés
+    
     with torch.inference_mode():
         outputs = text_model.generate(
             input_ids,
             attention_mask=attention_mask,
             max_length=len(input_ids[0]) + max_length,
-            min_length=len(input_ids[0]) + 10,  # Forcer une réponse minimale
+            min_length=len(input_ids[0]) + 10,  
             num_return_sequences=1,
             do_sample=True,
             temperature=0.8,
@@ -134,21 +134,21 @@ Tu es Louis Le Foufou, un assistant vocal intelligent qui répond aux questions 
             pad_token_id=tokenizer.eos_token_id
         )
     
-    # Décoder la sortie
+    
     generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
     
-    # Extraire la partie réponse
+    
     if "<réponse>" in generated_text:
         response = generated_text.split("<réponse>")[1].strip()
-        # Supprimer d'autres balises si présentes dans la réponse
+        
         response = response.split("</réponse>")[0].strip() if "</réponse>" in response else response
     else:
-        # Fallback: supprimer le prompt
+        
         response = generated_text.replace(prompt.strip(), "").strip()
     
-    # Si le modèle n'a pas généré de réponse valide, réessayer avec un prompt différent
+    
     if len(response) < 10:
-        # Prompt alternatif plus simple
+        
         alt_prompt = f"Question: {transcription}\nRéponse: "
         
         encoded_input = tokenizer(alt_prompt, return_tensors="pt", padding=True)
@@ -162,7 +162,7 @@ Tu es Louis Le Foufou, un assistant vocal intelligent qui répond aux questions 
                 max_length=len(input_ids[0]) + max_length,
                 num_return_sequences=1,
                 do_sample=True,
-                temperature=0.9,  # Température légèrement plus élevée
+                temperature=0.9,  
                 top_p=0.95,
                 top_k=50,
                 pad_token_id=tokenizer.eos_token_id
@@ -176,27 +176,27 @@ Tu es Louis Le Foufou, un assistant vocal intelligent qui répond aux questions 
     
     return response
 
-# Endpoint API optimisé
+
 @api_view(['POST'])
 def process_audio(request):
     global models_loaded
     
-    # Charger les modèles si nécessaire
+    
     if not models_loaded:
         success = load_models()
         if not success:
             return Response({"error": "Erreur lors du chargement des modèles"}, status=500)
     
-    # Récupérer le fichier audio
+    
     audio_file = request.FILES.get('audio')
     if not audio_file:
         return Response({"error": "No audio file provided"}, status=400)
 
-    # Générer un nom de fichier unique
+    
     file_id = int(time.time() * 1000)
     file_path = os.path.join(TEMP_DIR, f"input_{file_id}.webm")
     
-    # Sauvegarder le fichier audio
+    
     with open(file_path, "wb") as f:
         for chunk in audio_file.chunks():
             f.write(chunk)
@@ -205,7 +205,7 @@ def process_audio(request):
         return Response({"error": "Erreur lors de l'enregistrement du fichier"}, status=500)
 
     try:
-        # 1. Transcription audio → texte
+        
         start_time = time.time()
         transcription_result = stt_model.transcribe(
             file_path,
@@ -216,28 +216,28 @@ def process_audio(request):
         transcription_time = time.time() - start_time
         print(f"Transcription effectuée en {transcription_time:.2f} secondes: '{transcription}'")
 
-        # 2. Génération de la réponse avec BloomZ
+        
         start_time = time.time()
         ai_response = generate_response(transcription)
         generation_time = time.time() - start_time
         print(f"Réponse générée en {generation_time:.2f} secondes: '{ai_response}'")
 
-        # 3. Génération de l'audio (TTS)
+        
         start_time = time.time()
         output_audio_path = os.path.join(TEMP_DIR, f"output_{file_id}.mp3")
         
-        # Vérifier le cache TTS
+        
         cache_key = ai_response.lower().strip()
         if cache_key in tts_cache and os.path.exists(tts_cache[cache_key]):
-            # Copier depuis le cache
+            
             with open(tts_cache[cache_key], "rb") as src, open(output_audio_path, "wb") as dst:
                 dst.write(src.read())
             print(f"TTS récupéré du cache ({time.time() - start_time:.2f} secondes)")
         else:
-            # Générer nouveau TTS
+            
             asyncio.run(edge_tts.Communicate(ai_response, "fr-FR-HenriNeural").save(output_audio_path))
             
-            # Gérer le cache
+            
             if len(tts_cache) > 100:
                 old_key = next(iter(tts_cache))
                 old_path = tts_cache.pop(old_key)
@@ -247,7 +247,7 @@ def process_audio(request):
                     except:
                         pass
             
-            # Créer une copie permanente pour le cache
+            
             cache_path = os.path.join(TEMP_DIR, f"cache_{len(tts_cache)}.mp3")
             with open(output_audio_path, "rb") as src, open(cache_path, "wb") as dst:
                 dst.write(src.read())
@@ -256,28 +256,28 @@ def process_audio(request):
         tts_time = time.time() - start_time
         print(f"TTS généré en {tts_time:.2f} secondes")
         
-        # Temps total
+        
         total_time = transcription_time + generation_time + tts_time
         print(f"Temps total de traitement: {total_time:.2f} secondes")
 
-        # Libérer la mémoire
+        
         if current_device == "cuda":
             torch.cuda.empty_cache()
 
         if not os.path.exists(output_audio_path):
             return Response({"error": "Fichier TTS non généré"}, status=500)
 
-        # Nettoyer le fichier d'entrée
+        
         try:
             os.remove(file_path)
         except:
             pass
         
-        # Renvoyer le fichier audio
+        
         response = FileResponse(open(output_audio_path, "rb"), content_type="audio/mpeg")
         response['Content-Disposition'] = 'attachment; filename="response.mp3"'
         
-        # Supprimer le fichier après envoi
+        
         def delete_later():
             try:
                 time.sleep(5)
@@ -294,7 +294,7 @@ def process_audio(request):
         print(f"Erreur: {str(e)}")
         print(traceback.format_exc())
         
-        # Libérer la mémoire GPU
+        
         if current_device == "cuda":
             torch.cuda.empty_cache()
             gc.collect()
@@ -304,5 +304,5 @@ def process_audio(request):
             "details": traceback.format_exc()
         }, status=500)
 
-# Initialiser les modèles au démarrage
+
 load_models()

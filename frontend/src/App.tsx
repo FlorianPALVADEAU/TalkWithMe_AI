@@ -5,7 +5,8 @@ import { ReactMic } from 'react-mic';
 import { postUserSpeech } from './api/apiCalls';
 
 import CircularLoader from './component/CircularLoader';
-import SpeakDisplay from './component/speakDisplay';
+import SpeakDisplay from './component/SpeakDisplay';
+
 
 function App() {
   const [microphoneAccess, setMicrophoneAccess] = useState(false);
@@ -45,7 +46,6 @@ function App() {
 
 
     try {
-      // Passer DIRECTEMENT le blob de recordedData
       const responseBlob = await postUserSpeech(recordedData.blob);
 
       if (responseBlob) {
@@ -69,7 +69,6 @@ function App() {
 
   useEffect(() => {
     if (record) {
-      // cut all audio playing
       document.querySelectorAll('audio').forEach((audio) => audio.pause());
     }
   }, [record]);
@@ -83,7 +82,7 @@ function App() {
       }}
     >
       <h1 className='text-4xl font-bold text-center text-white h-80 flex items-center justify-center'>
-        Welcome to TalkWithMe AI!
+        Bienvenue, je suis Louis le FouFou, poses moi une question sinon conséquences...
       </h1>
       <div
         className='w-[100px] h-[100px] bg-white rounded-full flex items-center justify-center transition-all ease-in-out duration-300'
@@ -104,7 +103,6 @@ function App() {
         strokeColor='#ffffff'
         backgroundColor={aiSpeaking ? '#647185' : '#a45ead'}
         mimeType='audio/wav'
-        // noiseSuppression={true}
       />
 
       <button
